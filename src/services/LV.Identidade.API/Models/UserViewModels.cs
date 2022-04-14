@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace LV.Identidade.API.Models;
 
-public class UserViewModels
+public abstract class UserViewModels
 {
     public class UsuarioRegistro
     {
@@ -28,4 +28,27 @@ public class UserViewModels
         [StringLength(100, ErrorMessage = "O campo {0} precisa ter entre {2} e {1} caracteres", MinimumLength = 6)]
         public string Senha { get; set; }
     }
+
+    public class UsuarioRespostaLogin
+    {
+        public string AcessToken { get; set; }
+        public double ExpiresIn { get; set; }
+        public UsuarioToken UsuarioToken { get; set; }
+    }
+    
+    public class UsuarioToken
+    {
+        public string Id { get; set; }
+        public string Email { get; set; }
+        public IEnumerable<UsuarioClaim> UsuarioClaims { get; set; }
+    }
+    
+    public class UsuarioClaim
+    {
+        public string Value { get; set; }
+        public string Type { get; set; }
+    }
 }
+
+
+
