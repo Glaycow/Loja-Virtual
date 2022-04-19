@@ -18,7 +18,8 @@ public class AuthController : MainController
     private readonly AppSettings _appSettings;
 
 
-    public AuthController(SignInManager<IdentityUser> signInManager, UserManager<IdentityUser> userManager, IOptions<AppSettings> appSettings)
+    public AuthController(SignInManager<IdentityUser> signInManager, UserManager<IdentityUser> userManager,
+        IOptions<AppSettings> appSettings)
     {
         _signInManager = signInManager;
         _userManager = userManager;
@@ -50,8 +51,6 @@ public class AuthController : MainController
         }
 
         return CustomResponse();
-
-
     }
 
     [HttpPost("login")]
@@ -65,15 +64,15 @@ public class AuthController : MainController
         {
             return CustomResponse(await GerarJwt(usuarioLogin.Email));
         }
-        
+
         if (result.IsLockedOut)
         {
             AdicionarErroProcessamento("Usuário temporariamente bloqueado por tentativas inválidas");
             return CustomResponse();
         }
-        
+
         AdicionarErroProcessamento("Usuário ou Senha incorretos");
-        
+
         return CustomResponse();
     }
 
@@ -81,23 +80,14 @@ public class AuthController : MainController
     {
         var user = await _userManager.FindByEmailAsync(email);
         var claims = await _userManager.GetClaimsAsync(user);
-        var userRoles = await _userManager.GetRolesAsync(user);
-        
-        claims.Add(new Claim(JwtRegisteredClaimNames.Sub, user.Id));
-        claims.Add(new Claim(JwtRegisteredClaimNames.Email, user.Email));
-        claims.Add(new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()));
-        
-        claims.Add(new Claim(JwtRegisteredClaimNames.Nbf, ToUnixEpochDate(DateTime.UtcNow).ToString()));
-        claims.Add(new Claim(JwtRegisteredClaimNames.Iat, ToUnixEpochDate(DateTime.UtcNow).ToString(), ClaimValueTypes.Integer64));
-        
-        foreach (var userRole in userRoles)
-        {
-            claims.Add(new Claim("role", userRole));
-        }
+        var identityClaims = await ObterClaimsUsuario(claims, user);
+        var encodedToken = CodificarToken(identityClaims);
 
-        var identityClaims = new ClaimsIdentity();
-        identityClaims.AddClaims(claims);
+        return ObterRespostaToken(encodedToken, user, claims);
+    }
 
+    private string CodificarToken(ClaimsIdentity identityClaims)
+    {
         var tokenHandler = new JwtSecurityTokenHandler();
         var key = Encoding.ASCII.GetBytes(_appSettings.Secret);
 
@@ -107,12 +97,17 @@ public class AuthController : MainController
             Audience = _appSettings.ValidoEm,
             Subject = identityClaims,
             Expires = DateTime.UtcNow.AddHours(_appSettings.ExpiracaoHoras),
-            SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
+            SigningCredentials =
+                new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
         });
 
-        var encodedToken = tokenHandler.WriteToken(token);
+        return tokenHandler.WriteToken(token);
+    }
 
-        var response = new UserViewModels.UsuarioRespostaLogin
+    private UserViewModels.UsuarioRespostaLogin ObterRespostaToken(string encodedToken, IdentityUser user,
+        IEnumerable<Claim> claims)
+    {
+        return new UserViewModels.UsuarioRespostaLogin
         {
             AcessToken = encodedToken,
             ExpiresIn = TimeSpan.FromHours(_appSettings.ExpiracaoHoras).TotalSeconds,
@@ -120,14 +115,35 @@ public class AuthController : MainController
             {
                 Id = user.Id,
                 Email = user.Email,
-                UsuarioClaims = claims.Select(c => new UserViewModels.UsuarioClaim{Type = c.Type, Value = c.Value})
+                UsuarioClaims = claims.Select(c => new UserViewModels.UsuarioClaim {Type = c.Type, Value = c.Value})
             }
         };
+    }
 
-        return response;
+    private async Task<ClaimsIdentity> ObterClaimsUsuario(ICollection<Claim> claims, IdentityUser user)
+    {
+        var userRoles = await _userManager.GetRolesAsync(user);
 
+        claims.Add(new Claim(JwtRegisteredClaimNames.Sub, user.Id));
+        claims.Add(new Claim(JwtRegisteredClaimNames.Email, user.Email));
+        claims.Add(new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()));
+
+        claims.Add(new Claim(JwtRegisteredClaimNames.Nbf, ToUnixEpochDate(DateTime.UtcNow).ToString()));
+        claims.Add(new Claim(JwtRegisteredClaimNames.Iat, ToUnixEpochDate(DateTime.UtcNow).ToString(),
+            ClaimValueTypes.Integer64));
+
+        foreach (var userRole in userRoles)
+        {
+            claims.Add(new Claim("role", userRole));
+        }
+
+        var identityClaims = new ClaimsIdentity();
+        identityClaims.AddClaims(claims);
+
+        return identityClaims;
     }
 
     private static long ToUnixEpochDate(DateTime date) =>
-        (long) Math.Round((date.ToUniversalTime() - new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero)).TotalSeconds);
+        (long) Math.Round(
+            (date.ToUniversalTime() - new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero)).TotalSeconds);
 }
